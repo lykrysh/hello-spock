@@ -21,3 +21,5 @@ executable hello-spock
                       , Spock
                       , Spock-lucid
                       , lucid
+                      , postgresql-simple
+                      , configurator
