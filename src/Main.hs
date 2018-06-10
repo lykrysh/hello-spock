@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
 import Web.Spock
@@ -9,4 +10,8 @@ main = do
   runSpock 8080 (spock cfg app)
 
 app :: SpockM () () () ()
-app = return ()
+app = get root hello
+
+hello :: SpockAction db sess st ()
+hello = do
+  html "<h1>Hi</h1>"
