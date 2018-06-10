@@ -3,6 +3,8 @@ module Main where
 
 import Web.Spock
 import Web.Spock.Config
+import Web.Spock.Lucid (lucid)
+import Lucid
 
 main :: IO ()
 main = do
@@ -14,4 +16,5 @@ app = get root hello
 
 hello :: SpockAction db sess st ()
 hello = do
-  html "<h1>Hi</h1>"
+  lucid $ do
+    h1_ "Hi"
