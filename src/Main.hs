@@ -12,9 +12,27 @@ main = do
   runSpock 8080 (spock cfg app)
 
 app :: SpockM () () () ()
-app = get root hello
+app = get root helloAction
 
-hello :: SpockAction db sess st ()
-hello = do
-  lucid $ do
-    h1_ "Hi"
+helloAction :: SpockAction db sess st ()
+helloAction = do
+  helloInHtml
+
+helloInHtml :: SpockActionCtx ctx db sess st ()
+helloInHtml = lucid $ do
+  html_ $ do
+    head_ (title_ "Hello")
+    body_ $ do
+      h1_ "Hello!"
+      p_ "Hello! Lucid"
+      p_ $ do
+        "I love "
+        a_ [href_ "http://haskell.org"] "doggy"
+        " !!!"
+
+
+
+
+
+
+
