@@ -24,4 +24,3 @@ executable hello-spock
                       , postgresql-simple
                       , configurator
                       , text
-                      , base-prelude

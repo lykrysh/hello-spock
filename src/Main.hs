@@ -12,9 +12,10 @@ import qualified Database.PostgreSQL.Simple.ToField as Pg
 import qualified Data.Configurator as Cf
 import Data.IORef (IORef, newIORef, atomicModifyIORef')
 import Data.Int (Int64)
+import Data.Semigroup ((<>))
 import qualified Data.Text as T
+import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
-import BasePrelude
 
 type MyM = SpockM MyDb MySess MyState ()
 type MyDb = Pg.Connection
