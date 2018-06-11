@@ -6,16 +6,21 @@ import Web.Spock.Config
 import Web.Spock.Lucid (lucid)
 import Lucid
 import qualified Database.PostgreSQL.Simple as Pg
+import qualified Database.PostgreSQL.Simple.FromRow as Pg
+import qualified Database.PostgreSQL.Simple.ToRow as Pg
+import qualified Database.PostgreSQL.Simple.ToField as Pg
 import qualified Data.Configurator as Cf
 import Data.IORef (IORef, newIORef, atomicModifyIORef')
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Control.Monad.IO.Class (liftIO)
+import BasePrelude
 
 type MyM = SpockM MyDb MySess MyState ()
 type MyDb = Pg.Connection
 data MySess = EmptySession
-data MyState =  MyState (IORef Int)
+data MyState =  MyState { guests :: IORef [Guest] }
+data Guest = Guest { name :: T.Text, signature :: T.Text }
 
 main :: IO ()
 main = do
@@ -23,40 +28,51 @@ main = do
   conn <- Pg.connect connInfo
   createTable conn
 
-  ref <- newIORef 0
-  cfg <- defaultSpockCfg EmptySession (PCConn (mkConn connInfo)) (MyState ref)
-  runSpock 8080 (spock cfg app)
+  state <- MyState <$> newIORef []
+  cfg <- defaultSpockCfg EmptySession (PCConn (mkConn connInfo)) state
+  runSpock 8080 (spock cfg myapp)
 
-app :: MyM
-app = do
+myapp :: MyM
+myapp = do
   get root $ do
-    (MyState ref) <- getState
-    visitNum <- liftIO $ atomicModifyIORef' ref $ \i -> (i+1, i+1)
     lucid $ do
       pageTemplate "my title"
       p_ $ do
         "one more line"
-        p_ . toHtml $ "You are visit number " `T.append` (T.pack . show $ visitNum) `T.append` "!"
         p_ "Please put your name in the guestbook"
         p_ $ a_ [href_ "addguest"] "Add Guest Here"
   get "addguest" $ do
-    guests <- runQuery (\x -> Pg.query_ x "select * from guest;" :: IO [Pg.Only T.Text])
+    guests <- runQuery (\conn -> retrieveAllGuests conn)
     lucid $ do
       pageTemplate "my guestbook"
       h1_ "Guest List"
-      guestTemplate guests
+      renderTable guests
       h1_ "Add Guest"
       form_ [action_ "goguest", method_ "post"] $ do
-        label_ "Name: "
-        input_ [type_ "text", name_ "name"]
-        input_ [type_ "submit"]
+        label_ $ do
+          "Name: "
+          input_ [type_ "text", name_ "name"]
+        label_ $ do
+          "Signature: "
+          textarea_ [name_ "signature"] ""
+        input_ [type_ "submit", value_ "Add Guest"]
   post "goguest" $ do
-    ps <- params
-    runQuery (\x -> Pg.execute x "insert into guest values (?)" (Pg.Only . snd . Prelude.head $ filter (\x -> "name" == fst x) ps ))
+    name <- param' "name"
+    signature <- param' "signature"
+    _ <- runQuery $ insertGuest $ Guest name signature
+    guestRef <- guests <$> getState 
+    liftIO $ atomicModifyIORef' guestRef $ \g -> (g <> [Guest name signature], ())
     redirect "addguest"
+
+retrieveAllGuests :: MyDb -> IO [Guest]
+retrieveAllGuests c = Pg.query_ c "select name, signature from guest"
+
+instance Pg.FromRow Guest where
+  fromRow = Guest <$> Pg.field <*> Pg.field
 
 pageTemplate :: T.Text -> Html ()
 pageTemplate title = do
+  doctype_
   html_ $ do
     head_ (title_ $ toHtml title)
     body_ $ do
@@ -66,6 +82,23 @@ pageTemplate title = do
         "I love "
         a_ [href_ "http://haskell.org"] "doggy"
         " !!!"
+
+renderTable :: [Guest] -> Html ()
+renderTable xs = do
+  table_ $ do
+    tr_ $ do
+      th_ "Name"
+      th_ "Signature"
+    forM_ xs $ \guest -> tr_ $ do
+      td_ $ toHtml (name guest)
+      td_ $ toHtml (signature guest)
+
+insertGuest :: Guest -> MyDb -> IO Int64
+insertGuest g conn =
+  Pg.executeMany conn "insert into guest (name, signature) values (?, ?)" [g]
+
+instance Pg.ToRow Guest where
+  toRow n = Pg.toField <$> [name n, signature n]
 
 guestTemplate :: [Pg.Only T.Text] -> Html ()
 guestTemplate xs = do
@@ -80,7 +113,7 @@ guestTemplate xs = do
 
 createTable :: MyDb -> IO Int64
 createTable c =
-  Pg.execute_ c "create table if not exists guest (name varchar(80));"
+  Pg.execute_ c "create table if not exists guest (name varchar(80), signature varchar(80));"
 
 myConnInfo :: FilePath -> IO Pg.ConnectInfo
 myConnInfo path = do
