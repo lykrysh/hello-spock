@@ -28,11 +28,7 @@ main = do
   connInfo <- myConnInfo "pg.cfg"
   conn <- Pg.connect connInfo
 
-  st <- ServerState <$>
-    newIORef [ Movie "movie one" "140592938796" 1
-             , Movie "movie two" "p02924787568" 2
-             ]
-
+  st <- ServerState <$> newIORef []
   cfg <- defaultSpockCfg () (PCConn (mkConn connInfo)) st
   runSpock 8080 (spock cfg myapp)
 
