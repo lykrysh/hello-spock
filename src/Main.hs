@@ -38,14 +38,22 @@ app = do
         "one more line"
         p_ . toHtml $ "You are visit number " `T.append` (T.pack . show $ visitNum) `T.append` "!"
         p_ "Please put your name in the guestbook"
-        p_ $ a_ [href_ "guestbook"] "GuestBook"
-  get "guestbook" $ do
+        p_ $ a_ [href_ "addguest"] "Add Guest Here"
+  get "addguest" $ do
     guests <- runQuery (\x -> Pg.query_ x "select * from guest;" :: IO [Pg.Only T.Text])
     lucid $ do
       pageTemplate "my guestbook"
       h1_ "Guest List"
       guestTemplate guests
-      h1_ "Guest Sign In"
+      h1_ "Add Guest"
+      form_ [action_ "goguest", method_ "post"] $ do
+        label_ "Name: "
+        input_ [type_ "text", name_ "name"]
+        input_ [type_ "submit"]
+  post "goguest" $ do
+    ps <- params
+    runQuery (\x -> Pg.execute x "insert into guest values (?)" (Pg.Only . snd . Prelude.head $ filter (\x -> "name" == fst x) ps ))
+    redirect "addguest"
 
 pageTemplate :: T.Text -> Html ()
 pageTemplate title = do
