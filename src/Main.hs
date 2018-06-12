@@ -24,7 +24,6 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Aeson hiding (json)
 import GHC.Generics
 import Database.Persist hiding (get)
-import qualified Database.Persist as P
 import Database.Persist.Postgresql hiding (get)
 import Database.Persist.TH
 import Control.Monad.Logger (LoggingT, runStdoutLoggingT)
@@ -51,14 +50,31 @@ main = do
 
 myapp :: MyM
 myapp = do
+
   get "people" $ do
     allPeople <- runSQL  $ selectList [] [Asc PersonId]
-    json allPeople
+    -- json allPeople
+    lucid $ do
+      table_ $ do
+        tr_ $ do
+          th_ "name"
+          th_ "signature"
+        forM_ allPeople $ \person -> tr_ $ do
+          td_ $ toHtml (personName $ entityVal person)
+          td_ $ toHtml (personSignature $ entityVal person)
+
   get ("people" <//> var) $ \name -> do
     maybePerson <- runSQL $ getBy $ UniquePerson name
     case maybePerson of
       Nothing -> errorJson 2 "Can't find matching person"
-      Just (Entity personId thePerson) -> json thePerson
+      Just (Entity personId thePerson) ->
+        -- json thePerson
+        do
+          lucid $ do
+            h1_ "yey"
+            h1_ $ toHtml name
+            h1_ $ toHtml (personSignature thePerson)
+  
   post "people" $ do
     maybePerson <- jsonBody' :: MyAction (Maybe Person)
     case maybePerson of
