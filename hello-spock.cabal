@@ -21,6 +21,10 @@ executable hello-spock
                       , Spock
                       , Spock-lucid
                       , lucid
-                      , postgresql-simple
-                      , configurator
                       , text
+                      , aeson
+                      , persistent
+                      , persistent-postgresql
+                      , persistent-template
+                      , monad-logger
+
