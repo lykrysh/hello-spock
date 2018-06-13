@@ -1,6 +1,4 @@
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE OverloadedStrings #-}
-
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE QuasiQuotes                #-}
 {-# LANGUAGE TypeFamilies               #-}
@@ -19,6 +17,7 @@ import Web.Spock.Lucid (lucid)
 import Lucid
 import Data.IORef (IORef, newIORef, atomicModifyIORef')
 import Data.Text
+import Data.Semigroup ((<>))
 import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson hiding (json)
@@ -28,10 +27,8 @@ import Database.Persist.Postgresql hiding (get)
 import Database.Persist.TH
 import Control.Monad.Logger (LoggingT, runStdoutLoggingT)
 
-type MyM = SpockM MyDb MySess () ()
 type MyDb = SqlBackend
 data MySess = EmptySession
-type MyAction a = SpockAction MyDb MySess () a
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 Person json
@@ -41,28 +38,28 @@ Person json
   deriving Eq Read Show Generic
 |]
 
+data MyState = MyState { persons :: IORef [Person] }
+type MyM = SpockM MyDb MySess MyState ()
+type MyAction a = SpockAction MyDb MySess MyState a
+
 main :: IO ()
 main = do
   pool <- runStdoutLoggingT $ createPostgresqlPool connString 5
-  cfg <- defaultSpockCfg EmptySession (PCPool pool) ()
+  state <- MyState <$> newIORef []
+  cfg <- defaultSpockCfg EmptySession (PCPool pool) state 
   runStdoutLoggingT $ runSqlPool (do runMigration migrateAll) pool
   runSpock 8080 (spock cfg myapp)
 
 myapp :: MyM
 myapp = do
-
   get "people" $ do
     allPeople <- runSQL  $ selectList [] [Asc PersonId]
     -- json allPeople
     lucid $ do
-      table_ $ do
-        tr_ $ do
-          th_ "name"
-          th_ "signature"
-        forM_ allPeople $ \person -> tr_ $ do
-          td_ $ toHtml (personName $ entityVal person)
-          td_ $ toHtml (personSignature $ entityVal person)
-
+      pageTemplate "people"
+      renderList allPeople
+      h1_ "Add more person"
+      renderAddForm "addperson"
   get ("people" <//> var) $ \name -> do
     maybePerson <- runSQL $ getBy $ UniquePerson name
     case maybePerson of
@@ -71,17 +68,23 @@ myapp = do
         -- json thePerson
         do
           lucid $ do
+            pageTemplate name
             h1_ "yey"
-            h1_ $ toHtml name
+            h1_ $ toHtml (personName thePerson)
             h1_ $ toHtml (personSignature thePerson)
-  
-  post "people" $ do
-    maybePerson <- jsonBody' :: MyAction (Maybe Person)
+  post "addperson" $ do
+    name <- param' "name"
+    signature <- param' "signature"
+    maybePerson <- json $ object [ "name" .= String name, "signature" .= String signature ] :: MyAction (Maybe Person)
     case maybePerson of
       Nothing -> errorJson 1 "Oops can't parse request as Person"
       Just thePerson -> do
-        newId <- runSQL $ insert thePerson
-        json $ object [ "result" .= String "success", "id" .= newId ]
+        _ <- runSQL $ insert thePerson
+        personRef <- persons <$> getState
+        liftIO $ atomicModifyIORef' personRef $ \g -> (g <> [Person name signature], ())
+    redirect "people"
+
+
 
 
 connString :: ConnectionString
@@ -89,6 +92,35 @@ connString = "host=localhost port=5432 user=testuser dbname=testdb password=pass
 
 runSQL :: (HasSpock m, SpockConn m ~ SqlBackend) => SqlPersistT (LoggingT IO) a -> m a
 runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
+
+pageTemplate :: Text -> Html ()
+pageTemplate title = do
+  doctype_
+  html_ $ do
+    head_ (title_ $ toHtml title)
+    body_ $ do
+      h1_ "Hello!"
+
+renderList :: [Entity Person] -> Html ()
+renderList xs = do
+  table_ $ do
+    tr_ $ do
+      th_ "name"
+      th_ "signature"
+    forM_ xs $ \person -> tr_ $ do
+      td_ $ toHtml (personName $ entityVal person)
+      td_ $ toHtml (personSignature $ entityVal person)
+
+renderAddForm :: Text -> Html ()
+renderAddForm action = do
+  form_ [action_ action, method_ "post"] $ do
+    label_ $ do
+      "Name: "
+      input_ [type_ "text", name_ "name"]
+    label_ $ do
+      "Signature: "
+      textarea_ [name_ "signature"] ""
+    input_ [type_ "submit", value_ "Add Person"]
 
 errorJson :: Int -> Text -> MyAction ()
 errorJson code msg = json $
