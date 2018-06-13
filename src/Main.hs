@@ -17,6 +17,7 @@ import Web.Spock.Lucid (lucid)
 import Lucid
 import Data.IORef (IORef, newIORef, atomicModifyIORef')
 import Data.Text
+import Data.Int (Int64)
 import Data.Semigroup ((<>))
 import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
@@ -38,15 +39,13 @@ Person json
   deriving Eq Read Show Generic
 |]
 
-data MyState = MyState { persons :: IORef [Person] }
-type MyM = SpockM MyDb MySess MyState ()
-type MyAction a = SpockAction MyDb MySess MyState a
+type MyM = SpockM MyDb MySess () ()
+type MyAction a = SpockAction MyDb MySess () a
 
 main :: IO ()
 main = do
   pool <- runStdoutLoggingT $ createPostgresqlPool connString 5
-  state <- MyState <$> newIORef []
-  cfg <- defaultSpockCfg EmptySession (PCPool pool) state 
+  cfg <- defaultSpockCfg EmptySession (PCPool pool) ()
   runStdoutLoggingT $ runSqlPool (do runMigration migrateAll) pool
   runSpock 8080 (spock cfg myapp)
 
@@ -59,7 +58,14 @@ myapp = do
       pageTemplate "people"
       renderList allPeople
       h1_ "Add more person"
-      renderAddForm "addperson"
+  post "people" $ do
+    maybePerson <- jsonBody' :: MyAction (Maybe Person)
+    case maybePerson of
+      Nothing -> errorJson 1 "Oops can't parse request as Person"
+      Just thePerson -> do
+        newId <- runSQL $ insert $ thePerson
+        lucid $ do
+          h1_ $ toHtml (show newId)
   get ("people" <//> var) $ \name -> do
     maybePerson <- runSQL $ getBy $ UniquePerson name
     case maybePerson of
@@ -72,20 +78,6 @@ myapp = do
             h1_ "yey"
             h1_ $ toHtml (personName thePerson)
             h1_ $ toHtml (personSignature thePerson)
-  post "addperson" $ do
-    name <- param' "name"
-    signature <- param' "signature"
-    maybePerson <- json $ object [ "name" .= String name, "signature" .= String signature ] :: MyAction (Maybe Person)
-    case maybePerson of
-      Nothing -> errorJson 1 "Oops can't parse request as Person"
-      Just thePerson -> do
-        _ <- runSQL $ insert thePerson
-        personRef <- persons <$> getState
-        liftIO $ atomicModifyIORef' personRef $ \g -> (g <> [Person name signature], ())
-    redirect "people"
-
-
-
 
 connString :: ConnectionString
 connString = "host=localhost port=5432 user=testuser dbname=testdb password=password"
@@ -128,5 +120,3 @@ errorJson code msg = json $
   [ "result" .= String "failure!"
   , "error" .= object [ "code" .= code, "message" .= msg ]
   ]
-
-
