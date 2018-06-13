@@ -27,4 +27,5 @@ executable hello-spock
                       , persistent-postgresql
                       , persistent-template
                       , monad-logger
+  other-modules:      Db
 

@@ -11,34 +11,36 @@
 
 module Main where
 
+import Db
+import GHC.Generics
 import Web.Spock
 import Web.Spock.Config
 import Web.Spock.Lucid (lucid)
 import Lucid
-import Data.IORef (IORef, newIORef, atomicModifyIORef')
-import Data.Text
-import Data.Int (Int64)
-import Data.Semigroup ((<>))
-import Control.Monad (forM_)
-import Control.Monad.IO.Class (liftIO)
+import Data.Text (Text)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Aeson hiding (json)
-import GHC.Generics
+import Control.Monad (forM_)
+import Control.Monad.Logger (LoggingT, runStdoutLoggingT)
 import Database.Persist hiding (get)
 import Database.Persist.Postgresql hiding (get)
 import Database.Persist.TH
-import Control.Monad.Logger (LoggingT, runStdoutLoggingT)
-
-type MyDb = SqlBackend
-data MySess = EmptySession
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
-Person json
-  name Text
+Film json
+  title Text
+  isnew Bool
+  islinked Bool
   signature Text
-  UniquePerson name
+  author Text
+  year Int
+  length Int
+  UniqueFilm title
   deriving Eq Read Show Generic
 |]
 
+type MyDb = SqlBackend
+data MySess = EmptySession
 type MyM = SpockM MyDb MySess () ()
 type MyAction a = SpockAction MyDb MySess () a
 
@@ -51,33 +53,31 @@ main = do
 
 myapp :: MyM
 myapp = do
-  get "people" $ do
-    allPeople <- runSQL  $ selectList [] [Asc PersonId]
-    -- json allPeople
+  get "admin" $ do
+    allFilms <- runSQL  $ selectList [] [Asc FilmId]
     lucid $ do
-      pageTemplate "people"
-      renderList allPeople
-      h1_ "Add more person"
-  post "people" $ do
-    maybePerson <- jsonBody' :: MyAction (Maybe Person)
-    case maybePerson of
-      Nothing -> errorJson 1 "Oops can't parse request as Person"
-      Just thePerson -> do
-        newId <- runSQL $ insert $ thePerson
+      pageTemplate "admin"
+      renderList allFilms
+      h1_ "Add more film"
+  post "admin" $ do
+    maybeFilm <- jsonBody' :: MyAction (Maybe Film)
+    case maybeFilm of
+      Nothing -> errorJson 1 "Oops can't parse request as Film"
+      Just theFilm -> do
+        newId <- runSQL $ insert $ theFilm
         lucid $ do
           h1_ $ toHtml (show newId)
-  get ("people" <//> var) $ \name -> do
-    maybePerson <- runSQL $ getBy $ UniquePerson name
-    case maybePerson of
-      Nothing -> errorJson 2 "Can't find matching person"
-      Just (Entity personId thePerson) ->
-        -- json thePerson
+  get (var) $ \title -> do
+    maybeFilm <- runSQL $ getBy $ UniqueFilm title
+    case maybeFilm of
+      Nothing -> errorJson 2 "Can't find matching film"
+      Just (Entity filmId theFilm) ->
         do
           lucid $ do
-            pageTemplate name
+            pageTemplate title
             h1_ "yey"
-            h1_ $ toHtml (personName thePerson)
-            h1_ $ toHtml (personSignature thePerson)
+            h1_ $ toHtml (filmTitle theFilm)
+            h1_ $ toHtml (filmSignature theFilm)
 
 connString :: ConnectionString
 connString = "host=localhost port=5432 user=testuser dbname=testdb password=password"
@@ -93,27 +93,28 @@ pageTemplate title = do
     body_ $ do
       h1_ "Hello!"
 
-renderList :: [Entity Person] -> Html ()
+renderList :: [Entity Film] -> Html ()
 renderList xs = do
   table_ $ do
     tr_ $ do
-      th_ "name"
+      th_ "FilmId"
+      th_ "title"
+      th_ "isnew"
+      th_ "islinked"
       th_ "signature"
-    forM_ xs $ \person -> tr_ $ do
-      td_ $ toHtml (personName $ entityVal person)
-      td_ $ toHtml (personSignature $ entityVal person)
-
-renderAddForm :: Text -> Html ()
-renderAddForm action = do
-  form_ [action_ action, method_ "post"] $ do
-    label_ $ do
-      "Name: "
-      input_ [type_ "text", name_ "name"]
-    label_ $ do
-      "Signature: "
-      textarea_ [name_ "signature"] ""
-    input_ [type_ "submit", value_ "Add Person"]
-
+      th_ "author"
+      th_ "year"
+      th_ "length"
+    forM_ xs $ \film -> tr_ $ do
+      td_ $ toHtml (show $ fromSqlKey $ entityKey film)
+      td_ $ toHtml (filmTitle $ entityVal film)
+      td_ $ toHtml (show $ filmIsnew $ entityVal film)
+      td_ $ toHtml (show $ filmIslinked $ entityVal film)
+      td_ $ toHtml (filmSignature $ entityVal film)
+      td_ $ toHtml (filmAuthor $ entityVal film)
+      td_ $ toHtml (show $ filmYear $ entityVal film)
+      td_ $ toHtml (show $ filmLength $ entityVal film)
+  
 errorJson :: Int -> Text -> MyAction ()
 errorJson code msg = json $
   object
