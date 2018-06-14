@@ -19,6 +19,7 @@ import Web.Spock.Lucid (lucid)
 import Lucid
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
+import Data.Time.Clock
 import Data.Aeson hiding (json)
 import Control.Monad (forM_)
 import Control.Monad.Logger (LoggingT, runStdoutLoggingT)
@@ -27,16 +28,28 @@ import Database.Persist.Postgresql hiding (get)
 import Database.Persist.TH
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
+Keyword json
+  word Text
+  UniqueKeyword word
+  deriving Show
 Film json
   title Text
-  isnew Bool
-  islinked Bool
   signature Text
   author Text
   year Int
   length Int
   UniqueFilm title
   deriving Eq Read Show Generic
+KeywordFilm json
+  keyword KeywordId
+  film FilmId
+  deriving Show
+Watch json
+  film FilmId
+  viewerip Text
+  when UTCTime
+  finished Bool
+  deriving Show
 |]
 
 type MyDb = SqlBackend
@@ -53,20 +66,6 @@ main = do
 
 myapp :: MyM
 myapp = do
-  get "admin" $ do
-    allFilms <- runSQL  $ selectList [] [Asc FilmId]
-    lucid $ do
-      pageTemplate "admin"
-      renderList allFilms
-      h1_ "Add more film"
-  post "admin" $ do
-    maybeFilm <- jsonBody' :: MyAction (Maybe Film)
-    case maybeFilm of
-      Nothing -> errorJson 1 "Oops can't parse request as Film"
-      Just theFilm -> do
-        newId <- runSQL $ insert $ theFilm
-        lucid $ do
-          h1_ $ toHtml (show newId)
   get (var) $ \title -> do
     maybeFilm <- runSQL $ getBy $ UniqueFilm title
     case maybeFilm of
@@ -78,6 +77,23 @@ myapp = do
             h1_ "yey"
             h1_ $ toHtml (filmTitle theFilm)
             h1_ $ toHtml (filmSignature theFilm)
+  get "admin" $ do
+    allKeywords <- runSQL  $ selectList [] [Asc KeywordId]
+    allFilms <- runSQL  $ selectList [] [Asc FilmId]
+    allKeywordsFilms <- runSQL  $ selectList [] [Asc KeywordFilmId]
+    lucid $ do
+      pageTemplate "admin"
+      renderKeywords allKeywords
+      renderFilms allFilms
+      renderKeywordsFilms allKeywordsFilms
+  post "admin" $ do
+    maybeFilm <- jsonBody' :: MyAction (Maybe Film)
+    case maybeFilm of
+      Nothing -> errorJson 1 "Oops can't parse request as Film"
+      Just theFilm -> do
+        newId <- runSQL $ insert $ theFilm
+        lucid $ do
+          h1_ $ toHtml (show newId)
 
 connString :: ConnectionString
 connString = "host=localhost port=5432 user=testuser dbname=testdb password=password"
@@ -91,16 +107,26 @@ pageTemplate title = do
   html_ $ do
     head_ (title_ $ toHtml title)
     body_ $ do
-      h1_ "Hello!"
+      h1_ $ toHtml title
 
-renderList :: [Entity Film] -> Html ()
-renderList xs = do
+renderKeywords :: [Entity Keyword] -> Html ()
+renderKeywords xs = do
+  h1_ "keyword"
+  table_ $ do
+    tr_ $ do
+      th_ "KeywordId"
+      th_ "word"
+    forM_ xs $ \kw -> tr_ $ do
+      td_ $ toHtml (show $ fromSqlKey $ entityKey kw)
+      td_ $ toHtml (keywordWord $ entityVal kw)
+
+renderFilms :: [Entity Film] -> Html ()
+renderFilms xs = do
+  h1_ "film"
   table_ $ do
     tr_ $ do
       th_ "FilmId"
       th_ "title"
-      th_ "isnew"
-      th_ "islinked"
       th_ "signature"
       th_ "author"
       th_ "year"
@@ -108,13 +134,24 @@ renderList xs = do
     forM_ xs $ \film -> tr_ $ do
       td_ $ toHtml (show $ fromSqlKey $ entityKey film)
       td_ $ toHtml (filmTitle $ entityVal film)
-      td_ $ toHtml (show $ filmIsnew $ entityVal film)
-      td_ $ toHtml (show $ filmIslinked $ entityVal film)
       td_ $ toHtml (filmSignature $ entityVal film)
       td_ $ toHtml (filmAuthor $ entityVal film)
       td_ $ toHtml (show $ filmYear $ entityVal film)
       td_ $ toHtml (show $ filmLength $ entityVal film)
-  
+ 
+renderKeywordsFilms :: [Entity KeywordFilm] -> Html ()
+renderKeywordsFilms xs = do
+  h1_ "keyword_film"
+  table_ $ do
+    tr_ $ do
+      th_ "KeywordFilmId"
+      th_ "keyword"
+      th_ "film"
+    forM_ xs $ \kwfm -> tr_ $ do
+      td_ $ toHtml (show $ fromSqlKey $ entityKey kwfm)
+      td_ $ toHtml (show $ fromSqlKey $ keywordFilmKeyword $ entityVal kwfm)
+      td_ $ toHtml (show $ fromSqlKey $ keywordFilmFilm $ entityVal kwfm)
+ 
 errorJson :: Int -> Text -> MyAction ()
 errorJson code msg = json $
   object
