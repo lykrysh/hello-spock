@@ -13,7 +13,7 @@ module Main where
 
 import Db
 import GHC.Generics
-import Web.Spock
+import Web.Spock as WS
 import Web.Spock.Config
 import Web.Spock.Lucid (lucid)
 import Lucid
@@ -42,7 +42,7 @@ Film json
 KeywordFilm json
   keyword KeywordId
   film FilmId
-  deriving Show
+  deriving Eq Show
 Watch json
   film FilmId
   viewerip Text
@@ -65,7 +65,19 @@ main = do
 
 myapp :: MyM
 myapp = do
-  get (var) $ \title -> do
+  WS.get root $ do
+    new <- runSQL $ selectList [KeywordFilmKeyword ==. ( toSqlKey 1 ) ] []
+    lucid $ do
+      forM_ new $ \n -> do
+        let key = fromSqlKey $ keywordFilmFilm $ entityVal n
+        h1_ $ toHtml $ show key
+{-
+          maybeF <- runSQL $ DP.get key :: MyAction (Maybe Film)
+          case maybeF of
+            Nothing -> errorJson 1 "Oops can't parse request as Film"
+            Just theF -> filmTitle theF
+-}
+  WS.get (var) $ \title -> do
     maybeFilm <- runSQL $ getBy $ UniqueFilm title
     case maybeFilm of
       Nothing -> errorJson 2 "Can't find matching film"
@@ -76,7 +88,7 @@ myapp = do
             h1_ "yey"
             h1_ $ toHtml (filmTitle theFilm)
             h1_ $ toHtml (filmSignature theFilm)
-  get "admin" $ do
+  WS.get "admin" $ do
     allKeywords <- runSQL  $ selectList [] [Asc KeywordId]
     allFilms <- runSQL  $ selectList [] [Asc FilmId]
     allKeywordsFilms <- runSQL  $ selectList [] [Asc KeywordFilmId]
@@ -85,7 +97,7 @@ myapp = do
       renderKeywords allKeywords
       renderFilms allFilms
       renderKeywordsFilms allKeywordsFilms
-  post "admin" $ do
+  WS.post "admin" $ do
     maybeFilm <- jsonBody' :: MyAction (Maybe Film)
     case maybeFilm of
       Nothing -> errorJson 1 "Oops can't parse request as Film"
