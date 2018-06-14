@@ -18,7 +18,6 @@ import Web.Spock.Config
 import Web.Spock.Lucid (lucid)
 import Lucid
 import Data.Text (Text)
-import Data.Text.Encoding (encodeUtf8)
 import Data.Time.Clock
 import Data.Aeson hiding (json)
 import Control.Monad (forM_)
@@ -109,7 +108,7 @@ pageTemplate title = do
     body_ $ do
       h1_ $ toHtml title
 
-renderKeywords :: [Entity Keyword] -> Html ()
+renderKeywords :: [Entity Keyword]  -> Html ()
 renderKeywords xs = do
   h1_ "keyword"
   table_ $ do
@@ -148,10 +147,13 @@ renderKeywordsFilms xs = do
       th_ "keyword"
       th_ "film"
     forM_ xs $ \kwfm -> tr_ $ do
+      let kw = fromSqlKey $ keywordFilmKeyword $ entityVal kwfm
+      let fm = fromSqlKey $ keywordFilmFilm $ entityVal kwfm
       td_ $ toHtml (show $ fromSqlKey $ entityKey kwfm)
-      td_ $ toHtml (show $ fromSqlKey $ keywordFilmKeyword $ entityVal kwfm)
-      td_ $ toHtml (show $ fromSqlKey $ keywordFilmFilm $ entityVal kwfm)
- 
+      td_ $ toHtml (show $ kw)
+      td_ $ toHtml (show $ fm)
+
+
 errorJson :: Int -> Text -> MyAction ()
 errorJson code msg = json $
   object
