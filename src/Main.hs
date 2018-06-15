@@ -17,11 +17,14 @@ import Web.Spock as WS
 import Web.Spock.Config
 import Web.Spock.Lucid (lucid)
 import Lucid
+import Data.IORef (IORef, newIORef, atomicModifyIORef')
 import Data.Text (Text)
 import Data.Time.Clock
 import Data.Aeson hiding (json)
+import Data.Monoid ((<>))
 import Control.Monad (forM_)
 import Control.Monad.Logger (LoggingT, runStdoutLoggingT)
+import Control.Monad.IO.Class (liftIO)
 import Database.Persist hiding (get)
 import Database.Persist.Postgresql hiding (get)
 import Database.Persist.TH
@@ -66,17 +69,29 @@ main = do
 myapp :: MyM
 myapp = do
   WS.get root $ do
-    new <- runSQL $ selectList [KeywordFilmKeyword ==. ( toSqlKey 1 ) ] []
+    ids <- runSQL $ selectList [KeywordFilmKeyword ==. (toSqlKey 1)] []
+    let newids = map (fromSqlKey . entityKey) ids
+    new <- runSQL $ selectList [FilmId <-. (map toSqlKey newids)] []
     lucid $ do
+      pageTemplate "Root"
       forM_ new $ \n -> do
-        let key = fromSqlKey $ keywordFilmFilm $ entityVal n
-        h1_ $ toHtml $ show key
-{-
-          maybeF <- runSQL $ DP.get key :: MyAction (Maybe Film)
-          case maybeF of
-            Nothing -> errorJson 1 "Oops can't parse request as Film"
-            Just theF -> filmTitle theF
--}
+        h1_ $ toHtml $ (filmTitle $ entityVal n) <> (filmSignature $ entityVal n)
+        ul_ $ do
+          li_ $ (toHtml $ filmAuthor $ entityVal n)
+          li_ $ (toHtml  $ show $ filmYear $ entityVal n)
+          li_ $ (toHtml $ show $ filmLength $ entityVal n)
+      form_ [action_ "login", method_ "post"] $ do
+        label_ $ do
+          "name: "
+          input_ [type_ "text", name_ "name"]
+        label_ $ do
+          "pw: "
+          textarea_ [name_ "password"] ""
+        input_ [type_ "submit", value_ "submit"]
+  WS.post "login" $ do
+--    name <- param' "name"
+--    password <- param' "password"
+    redirect "/"
   WS.get (var) $ \title -> do
     maybeFilm <- runSQL $ getBy $ UniqueFilm title
     case maybeFilm of
